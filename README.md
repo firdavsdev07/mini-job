@@ -1,7 +1,6 @@
 # Mini Job Queue: o'quv topshiriq
 
 Stack: NestJS · Prisma · PostgreSQL · Swagger
-Vaqt: taxminan 4–6 soat
 Daraja: o'rta
 
 ---
