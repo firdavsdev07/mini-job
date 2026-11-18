@@ -53,6 +53,17 @@ psql -U postgres -c "CREATE DATABASE jobqueue;"
 
 ### 2.2. Loyihani olish va ishga tushirish
 
+Node.js 22 yoki undan yangi versiya kerak. Ilova ishga tushganda `.env` avtomatik yuklanadi.
+
+| O'zgaruvchi | Standart qiymat | Vazifasi |
+|---|---|---|
+| `DATABASE_URL` | `.env.example` dagi lokal ulanish | PostgreSQL manzili; foydalanuvchi, parol va baza nomini o'zingiznikiga moslang |
+| `PORT` | `3000` | HTTP server porti |
+| `WORKER_ENABLED` | `true` | `false` bo'lsa worker ishlamaydi |
+| `WORKER_POLL_MS` | `1000` | Navbatni tekshirish oralig'i, ms |
+| `MAX_ATTEMPTS` | `3` | Task uchun maksimal urinishlar soni |
+| `RETRY_BASE_DELAY_MS` | `2000` | Birinchi qayta urinishgacha kutish, ms |
+
 ```bash
 git clone <REPO-MANZILI>
 cd mini-job-queue
@@ -91,7 +102,7 @@ src/
   prisma/                      DB ulanishi (TAYYOR)
 ```
 
-★ bilan belgilangan joylarda `TODO(...)` izohlari bor. Har biri nima qilish kerakligini va maslahatlarni yozib qo'ygan. Avval o'qing, keyin yozing.
+★ bilan belgilangan qismlarning vazifalari quyidagi jadvalda keltirilgan.
 
 ---
 
