@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
@@ -8,20 +9,30 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
  * TODO(SWAGGER-2): har bir maydonga @ApiPropertyOptional qo'shing (enum, default, minimum/maximum).
  */
 export class ListTasksQuery {
+  @ApiPropertyOptional({ description: "Status bo'yicha filtr", enum: TaskStatus, example: TaskStatus.PENDING })
   @IsOptional()
   @IsEnum(TaskStatus)
   status?: TaskStatus;
 
+  @ApiPropertyOptional({ description: "Tur bo'yicha filtr", example: 'email' })
   @IsOptional()
   @IsString()
   type?: string;
 
+  @ApiPropertyOptional({ description: 'Sahifa raqami', default: 1, minimum: 1, example: 1 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page: number = 1;
 
+  @ApiPropertyOptional({
+    description: 'Sahifadagi elementlar soni',
+    default: 10,
+    minimum: 1,
+    maximum: 100,
+    example: 10,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
