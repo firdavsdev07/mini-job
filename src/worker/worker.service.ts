@@ -1,5 +1,5 @@
-import { Injectable, Logger, NotImplementedException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Task } from '@prisma/client';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Prisma, Task } from '@prisma/client';
 import { MockService } from '../mock/mock.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -37,7 +37,7 @@ function readConfig() {
  * runTask() (TODO 7) shu funksiyadan foydalanadi.
  */
 export function computeBackoffMs(attempt: number, baseMs: number): number {
-  throw new NotImplementedException('TODO(5): computeBackoffMs() ni yozing');
+  return baseMs * 2 ** (attempt - 1);
 }
 
 /**
@@ -124,7 +124,20 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
    * Shuning uchun attempts claim paytida oshadi: "1-urinish boshlandi" degan ma'no.
    */
   async claimNext(): Promise<Task | null> {
-    throw new NotImplementedException('TODO(6): claimNext() ni yozing');
+    const candidate = await this.prisma.task.findFirst({
+      where: { status: 'PENDING', runAt: { lte: new Date() } },
+      orderBy: [{ runAt: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+    if (!candidate) return null;
+
+    const result = await this.prisma.task.updateMany({
+      where: { id: candidate.id, status: 'PENDING' },
+      data: { status: 'PROCESSING', startedAt: new Date(), attempts: { increment: 1 } },
+    });
+    if (result.count === 0) return null;
+
+    return this.prisma.task.findUniqueOrThrow({ where: { id: candidate.id } });
   }
 
   /**
@@ -154,6 +167,28 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
    * ishlashini kuzatish oson bo'ladi.
    */
   async runTask(task: Task): Promise<void> {
-    throw new NotImplementedException('TODO(7): runTask() ni yozing');
+    this.logger.log(`Task ${task.id} boshlandi (urinish ${task.attempts})`);
+
+    let errorMessage: string | null = null;
+    try {
+      await this.mock.processTask(task.payload);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    let data: Prisma.TaskUpdateInput;
+    if (errorMessage === null) {
+      data = { status: 'COMPLETED', completedAt: new Date(), lastError: null };
+      this.logger.log(`Task ${task.id} COMPLETED`);
+    } else if (task.attempts >= this.config.maxAttempts) {
+      data = { status: 'FAILED', lastError: errorMessage };
+      this.logger.warn(`Task ${task.id} FAILED (${task.attempts} urinish)`);
+    } else {
+      const delay = computeBackoffMs(task.attempts, this.config.retryBaseDelayMs);
+      data = { status: 'PENDING', lastError: errorMessage, runAt: new Date(Date.now() + delay) };
+      this.logger.warn(`Task ${task.id} yiqildi, ${delay} ms dan keyin qayta urinadi`);
+    }
+
+    await this.prisma.task.update({ where: { id: task.id }, data });
   }
 }
