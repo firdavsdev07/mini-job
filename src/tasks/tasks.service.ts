@@ -1,5 +1,5 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
-import { Task } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, Task } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { ListTasksQuery } from './dto/list-tasks.query.dto';
@@ -41,7 +41,30 @@ export class TasksService {
    * BONUS-1: dto.scheduledAt berilgan bo'lsa, `runAt` maydoniga new Date(dto.scheduledAt) yozing.
    */
   async create(dto: CreateTaskDto): Promise<{ task: Task; created: boolean }> {
-    throw new NotImplementedException('TODO(1): create() ni yozing');
+    const existing = await this.prisma.task.findUnique({
+      where: { idempotencyKey: dto.idempotencyKey },
+    });
+    if (existing) return { task: existing, created: false };
+
+    try {
+      const task = await this.prisma.task.create({
+        data: {
+          type: dto.type,
+          payload: dto.payload as Prisma.InputJsonObject,
+          idempotencyKey: dto.idempotencyKey,
+          ...(dto.scheduledAt && { runAt: new Date(dto.scheduledAt) }),
+        },
+      });
+      return { task, created: true };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const task = await this.prisma.task.findUniqueOrThrow({
+          where: { idempotencyKey: dto.idempotencyKey },
+        });
+        return { task, created: false };
+      }
+      throw e;
+    }
   }
 
   /**
@@ -50,7 +73,9 @@ export class TasksService {
    * (Bu metodni cancel() ham ishlatishi mumkin.)
    */
   async findOne(id: string): Promise<Task> {
-    throw new NotImplementedException('TODO(2): findOne() ni yozing');
+    const task = await this.prisma.task.findUnique({ where: { id } });
+    if (!task) throw new NotFoundException(`Task topilmadi: ${id}`);
+    return task;
   }
 
   /**
@@ -67,7 +92,21 @@ export class TasksService {
     data: Task[];
     meta: { total: number; page: number; limit: number };
   }> {
-    throw new NotImplementedException('TODO(3): findAll() ni yozing');
+    const { status, type, page, limit } = query;
+    const where: Prisma.TaskWhereInput = {};
+    if (status) where.status = status;
+    if (type) where.type = type;
+
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit } };
   }
 
   /**
@@ -84,7 +123,15 @@ export class TasksService {
    * ekanini ajratish uchun findUnique ishlating.
    */
   async cancel(id: string): Promise<Task> {
-    throw new NotImplementedException('TODO(4): cancel() ni yozing');
+    const result = await this.prisma.task.updateMany({
+      where: { id, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    });
+    const task = await this.findOne(id);
+    if (result.count === 0) {
+      throw new ConflictException(`Faqat PENDING task bekor qilinadi (hozir: ${task.status})`);
+    }
+    return task;
   }
 
   /**
@@ -99,6 +146,31 @@ export class TasksService {
    * Maslahat: prisma.task.groupBy({ by: ['status'], _count: { _all: true } })
    */
   async getStats(): Promise<TaskStats> {
-    throw new NotImplementedException('BONUS-2: getStats() ni yozing');
+    const byStatus: TaskStats['byStatus'] = {
+      PENDING: 0,
+      PROCESSING: 0,
+      COMPLETED: 0,
+      FAILED: 0,
+      CANCELLED: 0,
+    };
+    const groups = await this.prisma.task.groupBy({ by: ['status'], _count: { _all: true } });
+    let total = 0;
+    for (const g of groups) {
+      byStatus[g.status] = g._count._all;
+      total += g._count._all;
+    }
+
+    const completed = await this.prisma.task.findMany({
+      where: { status: 'COMPLETED', startedAt: { not: null }, completedAt: { not: null } },
+      select: { startedAt: true, completedAt: true },
+    });
+    const averageProcessingMs = completed.length
+      ? Math.round(
+          completed.reduce((sum, t) => sum + (t.completedAt!.getTime() - t.startedAt!.getTime()), 0) /
+            completed.length,
+        )
+      : null;
+
+    return { total, byStatus, averageProcessingMs };
   }
 }
